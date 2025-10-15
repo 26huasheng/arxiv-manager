@@ -1,3 +1,4 @@
+# 依赖 & 构建产物
 node_modules/
 .next/
 dist/
@@ -5,13 +6,20 @@ dist/
 .turbo/
 .cache/
 coverage/
+
+# 大文件/缓存（按实际需要增删）
 data/pdfs/
 public/pdfs/
-public/downloads/
 scripts/cache/
+
+# 日志 & 临时
 *.log
 npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# IDE
 .vscode/
-.nfs*
+
+# —— 注意：保留 data 下的小 JSON 文件 ——
+# （不屏蔽整个 data/ 目录，只屏蔽里面的大子目录）
