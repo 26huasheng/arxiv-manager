@@ -1,0 +1,15 @@
+{
+  "arxiv-2401-23456": {
+    "paperId": "arxiv-2401-23456",
+    "liked": true
+  },
+  "arxiv-2401-12345": {
+    "paperId": "arxiv-2401-12345",
+    "liked": true
+  },
+  "arxiv-2510-08575v1": {
+    "paperId": "arxiv-2510-08575v1",
+    "saved": true,
+    "rating": 5
+  }
+}

@@ -1,0 +1,291 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { Collection, Paper } from '@/src/types/paper'
+
+export default function CollectionsPage() {
+  const router = useRouter()
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [papers, setPapers] = useState<Record<string, Paper>>({})
+  const [loading, setLoading] = useState(true)
+  const [expandedCollection, setExpandedCollection] = useState<string | null>(null)
+  const [toast, setToast] = useState<{
+    show: boolean
+    message: string
+    type: 'success' | 'error'
+  }>({ show: false, message: '', type: 'success' })
+
+  useEffect(() => {
+    loadCollections()
+  }, [])
+
+  const loadCollections = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/collections')
+      const data = await response.json()
+
+      if (data.collections) {
+        setCollections(data.collections)
+        // Load papers for all collections
+        const allPaperIds = new Set<string>()
+        data.collections.forEach((col: Collection) => {
+          col.paperIds.forEach(id => allPaperIds.add(id))
+        })
+        if (allPaperIds.size > 0) {
+          await loadPapers(Array.from(allPaperIds))
+        }
+      }
+    } catch (error) {
+      console.error('Error loading collections:', error)
+      showToast('加载收藏夹失败', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadPapers = async (paperIds: string[]) => {
+    try {
+      // Fetch papers by IDs
+      const response = await fetch('/api/papers')
+      const data = await response.json()
+
+      const papersMap: Record<string, Paper> = {}
+      data.papers.forEach((paper: Paper) => {
+        if (paperIds.includes(paper.id)) {
+          papersMap[paper.id] = paper
+        }
+      })
+
+      setPapers(papersMap)
+    } catch (error) {
+      console.error('Error loading papers:', error)
+    }
+  }
+
+  const handleDeleteCollection = async (collectionId: string) => {
+    if (!confirm('确定要删除这个收藏夹吗？')) return
+
+    try {
+      const response = await fetch(`/api/collections?id=${collectionId}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        showToast('收藏夹已删除', 'success')
+        await loadCollections()
+      }
+    } catch (error) {
+      console.error('Error deleting collection:', error)
+      showToast('删除失败', 'error')
+    }
+  }
+
+  const handleRemovePaper = async (collectionId: string, paperId: string) => {
+    try {
+      const response = await fetch(`/api/collections/${collectionId}/items?paperId=${paperId}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        showToast('已从收藏夹移除', 'success')
+        await loadCollections()
+      }
+    } catch (error) {
+      console.error('Error removing paper:', error)
+      showToast('移除失败', 'error')
+    }
+  }
+
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ show: true, message, type })
+    setTimeout(() => {
+      setToast({ show: false, message: '', type: 'success' })
+    }, 5000)
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+          <div
+            className={`px-6 py-4 rounded-lg shadow-lg ${
+              toast.type === 'success'
+                ? 'bg-green-600 text-white'
+                : 'bg-red-600 text-white'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              {toast.type === 'success' ? (
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              )}
+              <span className="font-medium">{toast.message}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <button
+              onClick={() => router.push('/')}
+              className="mb-4 flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              返回首页
+            </button>
+            <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+              我的收藏夹
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              管理和浏览收藏的论文
+            </p>
+          </div>
+        </div>
+
+        {/* Collections */}
+        {loading ? (
+          <div className="text-center py-12 text-gray-600 dark:text-gray-400">
+            加载中...
+          </div>
+        ) : collections.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="text-gray-600 dark:text-gray-400 mb-4">
+              还没有收藏夹
+            </div>
+            <button
+              onClick={() => router.push('/')}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            >
+              去首页收藏论文
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {collections.map((collection) => (
+              <div
+                key={collection.id}
+                className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6"
+              >
+                {/* Collection Header */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                      {collection.name}
+                    </h2>
+                    {collection.description && (
+                      <p className="text-gray-600 dark:text-gray-400 mb-2">
+                        {collection.description}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-4 text-sm text-gray-500">
+                      <span>{collection.paperIds.length} 篇论文</span>
+                      <span>创建于 {formatDate(collection.createdAt)}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() =>
+                        setExpandedCollection(
+                          expandedCollection === collection.id ? null : collection.id
+                        )
+                      }
+                      className="px-4 py-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                    >
+                      {expandedCollection === collection.id ? '收起' : '展开'}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCollection(collection.id)}
+                      className="px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+
+                {/* Papers in Collection */}
+                {expandedCollection === collection.id && (
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
+                    {collection.paperIds.length === 0 ? (
+                      <p className="text-gray-500 dark:text-gray-400 text-center py-8">
+                        暂无论文
+                      </p>
+                    ) : (
+                      collection.paperIds.map((paperId) => {
+                        const paper = papers[paperId]
+                        if (!paper) return null
+
+                        return (
+                          <div
+                            key={paperId}
+                            className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg"
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <h3
+                                  className="text-lg font-semibold text-gray-900 dark:text-white mb-2 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                  onClick={() => router.push(`/papers/${paper.id}`)}
+                                >
+                                  {paper.title}
+                                </h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                  {paper.authors.join(', ')}
+                                </p>
+                                <p className="text-gray-700 dark:text-gray-300 line-clamp-2">
+                                  {paper.abstract}
+                                </p>
+                                <div className="flex gap-2 mt-3">
+                                  {paper.categories.map((cat) => (
+                                    <span
+                                      key={cat}
+                                      className="px-2 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded"
+                                    >
+                                      {cat}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleRemovePaper(collection.id, paperId)}
+                                className="ml-4 p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                title="从收藏夹移除"
+                              >
+                                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}

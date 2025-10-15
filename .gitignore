@@ -1,0 +1,17 @@
+node_modules/
+.next/
+dist/
+.vercel/
+.turbo/
+.cache/
+coverage/
+data/pdfs/
+public/pdfs/
+public/downloads/
+scripts/cache/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.nfs*

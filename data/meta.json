@@ -1,0 +1,10 @@
+{
+  "lastFetchedAt": "2025-10-14T06:03:11.043Z",
+  "count": 1167,
+  "windowDays": 7,
+  "baseNowISO": "2025-10-14T06:02:50.000Z",
+  "windowStartISO": "2025-10-07T06:02:50.000Z",
+  "usedServerClock": true,
+  "source": "api",
+  "version": "2.6.0+ua1.0"
+}

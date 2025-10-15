@@ -1,0 +1,21 @@
+{
+  "arxiv-2401-23456": {
+    "paperId": "arxiv-2401-23456",
+    "rubric": {
+      "novelty": 22,
+      "technical": 24,
+      "empirical": 23,
+      "clarity": 14,
+      "reproducibility": 8
+    },
+    "reasons": {
+      "novelty": "Proposes a novel mixed precision training strategy for large language models, showing significant memory reduction with maintained quality.",
+      "technical": "Combines dynamic loss scaling with gradient checkpointing, demonstrating technical depth in the implementation of mixed precision.",
+      "empirical": "Presents promising results on models up to 175B parameters, indicating robust empirical evidence.",
+      "clarity": "Abstract is clear and concise, effectively communicating the research problem and approach.",
+      "reproducibility": "While the abstract mentions promising results, it does not provide details on code or data availability for reproducibility."
+    },
+    "overall": 91,
+    "updatedAt": "2025-10-12T12:35:43.506Z"
+  }
+}

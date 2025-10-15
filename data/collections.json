@@ -1,0 +1,14 @@
+[
+  {
+    "id": "col-1760273345226-6kp1sqghv",
+    "name": "Deep Learning Papers",
+    "description": "Collection of important DL papers",
+    "paperIds": [
+      "arxiv-2401-23456",
+      "arxiv-2401-12345",
+      "arxiv-2510-08575v1"
+    ],
+    "createdAt": "2025-10-12T12:49:05.226Z",
+    "updatedAt": "2025-10-12T12:51:26.544Z"
+  }
+]

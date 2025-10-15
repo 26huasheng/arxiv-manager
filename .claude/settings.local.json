@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(npm install)",
+      "Bash(npm run seed)",
+      "Bash(npm run dev)",
+      "Bash(npm run ingest:*)",
+      "Bash(curl:*)",
+      "Bash(npm run embed:*)",
+      "Bash(wait)",
+      "Bash(cat:*)",
+      "Bash(COLLECTION_ID=\"col-1760273345226-6kp1sqghv\")",
+      "Bash(for:*)",
+      "Bash(do echo \"Adding $PAPER_ID...\")",
+      "Bash(jq:*)",
+      "Bash(for PAPER_ID in \"arxiv-2401-23456\" \"arxiv-2401-12345\")",
+      "Bash(do echo \"Liking $PAPER_ID...\")",
+      "Bash(npm install node-cron)",
+      "Bash(npm install:*)",
+      "Bash(timeout 10 npm run cron)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm run rebuild:*)",
+      "Bash(timeout 30 npm run rebuild:*)",
+      "Bash(REBUILD_DAYS=14 USE_SERVER_CLOCK=true timeout 30 npm run rebuild)",
+      "Bash(timeout 90 npm run rebuild)",
+      "Bash(awk:*)",
+      "Bash(node:*)",
+      "Bash(npm run build:*)",
+      "Read(//tmp/**)",
+      "Bash(npx tsc:*)",
+      "Bash(tee:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

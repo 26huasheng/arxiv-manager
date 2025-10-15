@@ -1,0 +1,72 @@
+# ============================================================================
+# Hosting Pack v3.1 - Render.com Deployment Configuration
+# Blueprint for arXiv Manager
+# ============================================================================
+services:
+  # Main web service
+  - type: web
+    name: arxiv-manager
+    runtime: node
+    plan: starter  # Change to 'free' or 'standard' as needed
+    region: oregon  # Change to your preferred region
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      # arXiv User-Agent (REQUIRED - replace with your email)
+      - key: ARXIV_UA
+        value: arXiv-Manager/1.0 (mailto:your-email@example.com)
+      # GLM API Configuration (optional, for embeddings)
+      - key: GLM_API_BASE
+        value: https://open.bigmodel.cn/api/paas/v4
+      - key: GLM_API_KEY
+        sync: false  # Set in Render dashboard (secret)
+      - key: EMBEDDING_MODEL
+        value: embedding-3
+    # Persistent disk for papers.json
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+    # Health check
+    healthCheckPath: /api/health
+
+  # Optional: Cron job for daily rebuild (uncomment to enable)
+  # - type: cron
+  #   name: arxiv-manager-rebuild
+  #   runtime: node
+  #   schedule: "0 2 * * *"  # Daily at 2 AM UTC
+  #   buildCommand: npm ci
+  #   startCommand: node scripts/rebuild-7d.mjs
+  #   envVars:
+  #     - key: NODE_ENV
+  #       value: production
+  #     - key: ARXIV_UA
+  #       value: arXiv-Manager/1.0 (mailto:your-email@example.com)
+  #     - key: USE_SERVER_CLOCK
+  #       value: "true"
+  #     - key: REBUILD_DAYS
+  #       value: "7"
+  #   disk:
+  #     name: data
+  #     mountPath: /opt/render/project/src/data
+  #     sizeGB: 1
+
+  # Alternative: Background worker for scheduled rebuild (uncomment to enable)
+  # - type: worker
+  #   name: arxiv-manager-worker
+  #   runtime: node
+  #   buildCommand: npm ci
+  #   startCommand: node -e "setInterval(() => { require('child_process').execSync('node scripts/rebuild-7d.mjs') }, 24*60*60*1000)"
+  #   envVars:
+  #     - key: NODE_ENV
+  #       value: production
+  #     - key: ARXIV_UA
+  #       value: arXiv-Manager/1.0 (mailto:your-email@example.com)
+  #   disk:
+  #     name: data
+  #     mountPath: /opt/render/project/src/data
+  #     sizeGB: 1

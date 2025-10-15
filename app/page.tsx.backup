@@ -1,0 +1,780 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { Paper, VectorSearchResult, PaperScore, PaperInteraction, Collection } from '@/src/types/paper'
+
+type PaperOrResult = Paper | VectorSearchResult
+
+function isVectorResult(paper: PaperOrResult): paper is VectorSearchResult {
+  return 'score' in paper && 'why' in paper
+}
+
+export default function Home() {
+  const router = useRouter()
+  const [papers, setPapers] = useState<PaperOrResult[]>([])
+  const [scores, setScores] = useState<Record<string, PaperScore>>({})
+  const [interactions, setInteractions] = useState<Record<string, PaperInteraction>>({})
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [expandedScores, setExpandedScores] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(false)
+  const [query, setQuery] = useState('')
+  const [mode, setMode] = useState<'title' | 'author' | 'fulltext'>('title')
+  const [since, setSince] = useState('')
+  const [vectorSearch, setVectorSearch] = useState(false)
+  const [ingesting, setIngesting] = useState(false)
+  const [showCollectionDialog, setShowCollectionDialog] = useState(false)
+  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null)
+  const [newCollectionName, setNewCollectionName] = useState('')
+  const [toast, setToast] = useState<{
+    show: boolean
+    message: string
+    type: 'success' | 'error'
+  }>({ show: false, message: '', type: 'success' })
+
+  const fetchPapers = async () => {
+    setLoading(true)
+    try {
+      if (vectorSearch && query) {
+        // Use vector search
+        const params = new URLSearchParams()
+        params.append('q', query)
+        params.append('topK', '20')
+        if (since) params.append('since', since)
+
+        const response = await fetch(`/api/search/vector?${params}`)
+        const data = await response.json()
+
+        if (data.error) {
+          showToast(data.message || 'Vector search failed', 'error')
+          setPapers([])
+        } else {
+          setPapers(data.results || [])
+        }
+      } else {
+        // Use keyword search
+        const params = new URLSearchParams()
+        if (query) params.append('q', query)
+        params.append('mode', mode)
+        if (since) params.append('since', since)
+
+        const response = await fetch(`/api/papers?${params}`)
+        const data = await response.json()
+        setPapers(data.papers || [])
+      }
+    } catch (error) {
+      console.error('Error fetching papers:', error)
+      showToast('Failed to fetch papers', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadScores = async (paperIds: string[]) => {
+    try {
+      // Fetch scores for all papers
+      const response = await fetch('/api/papers/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paperIds }),
+      })
+      const data = await response.json()
+      if (data.scores) {
+        setScores(data.scores)
+      }
+    } catch (error) {
+      console.error('Error loading scores:', error)
+    }
+  }
+
+  const loadInteractions = async () => {
+    try {
+      const response = await fetch('/api/papers/interactions')
+      const data = await response.json()
+      if (data.interactions) {
+        setInteractions(data.interactions)
+      }
+    } catch (error) {
+      console.error('Error loading interactions:', error)
+    }
+  }
+
+  const loadCollections = async () => {
+    try {
+      const response = await fetch('/api/collections')
+      const data = await response.json()
+      if (data.collections) {
+        setCollections(data.collections)
+      }
+    } catch (error) {
+      console.error('Error loading collections:', error)
+    }
+  }
+
+  const toggleScoreExpand = (paperId: string) => {
+    setExpandedScores(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(paperId)) {
+        newSet.delete(paperId)
+      } else {
+        newSet.add(paperId)
+      }
+      return newSet
+    })
+  }
+
+  const handleLike = async (paperId: string) => {
+    const currentLiked = interactions[paperId]?.liked || false
+    const newLiked = !currentLiked
+
+    try {
+      const response = await fetch(`/api/papers/${paperId}/interact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ liked: newLiked }),
+      })
+
+      if (response.ok) {
+        setInteractions(prev => ({
+          ...prev,
+          [paperId]: { ...prev[paperId], paperId, liked: newLiked }
+        }))
+        showToast(newLiked ? '已喜欢' : '取消喜欢', 'success')
+      }
+    } catch (error) {
+      console.error('Error toggling like:', error)
+      showToast('操作失败', 'error')
+    }
+  }
+
+  const handleSaveClick = (paperId: string) => {
+    setSelectedPaperId(paperId)
+    setShowCollectionDialog(true)
+  }
+
+  const handleAddToCollection = async (collectionId: string) => {
+    if (!selectedPaperId) return
+
+    try {
+      const response = await fetch(`/api/collections/${collectionId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paperId: selectedPaperId }),
+      })
+
+      if (response.ok) {
+        showToast('已添加到收藏夹', 'success')
+        setShowCollectionDialog(false)
+        setSelectedPaperId(null)
+        await loadCollections()
+      }
+    } catch (error) {
+      console.error('Error adding to collection:', error)
+      showToast('添加失败', 'error')
+    }
+  }
+
+  const handleCreateCollection = async () => {
+    if (!newCollectionName.trim()) return
+
+    try {
+      const response = await fetch('/api/collections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newCollectionName }),
+      })
+
+      const data = await response.json()
+
+      if (data.success && selectedPaperId) {
+        await handleAddToCollection(data.collection.id)
+        setNewCollectionName('')
+        await loadCollections()
+      }
+    } catch (error) {
+      console.error('Error creating collection:', error)
+      showToast('创建收藏夹失败', 'error')
+    }
+  }
+
+  useEffect(() => {
+    fetchPapers()
+    loadInteractions()
+    loadCollections()
+  }, [mode, since, vectorSearch])
+
+  useEffect(() => {
+    if (papers.length > 0) {
+      const paperIds = papers.map(p => p.id)
+      loadScores(paperIds)
+    }
+  }, [papers])
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    fetchPapers()
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  }
+
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ show: true, message, type })
+    setTimeout(() => {
+      setToast({ show: false, message: '', type: 'success' })
+    }, 5000)
+  }
+
+  const handleIngest = async () => {
+    if (ingesting) return
+
+    setIngesting(true)
+    showToast('Fetching papers from arXiv...', 'success')
+
+    try {
+      const response = await fetch('/api/admin/ingest', {
+        method: 'POST',
+      })
+      const data = await response.json()
+
+      if (data.success) {
+        showToast(
+          `Success! ${data.data.added} new papers added (Total: ${data.data.total})`,
+          'success'
+        )
+        // Refresh the papers list
+        await fetchPapers()
+      } else {
+        showToast(`Error: ${data.message}`, 'error')
+      }
+    } catch (error) {
+      console.error('Error ingesting papers:', error)
+      showToast('Failed to fetch papers from arXiv', 'error')
+    } finally {
+      setIngesting(false)
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+          <div
+            className={`px-6 py-4 rounded-lg shadow-lg ${
+              toast.type === 'success'
+                ? 'bg-green-600 text-white'
+                : 'bg-red-600 text-white'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              {toast.type === 'success' ? (
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              )}
+              <span className="font-medium">{toast.message}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+              arXiv Manager
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              AI-powered paper management and discovery
+            </p>
+          </div>
+          <button
+            onClick={handleIngest}
+            disabled={ingesting}
+            className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+              ingesting
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-700'
+            } text-white flex items-center gap-2`}
+          >
+            {ingesting ? (
+              <>
+                <svg
+                  className="animate-spin h-5 w-5"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                Fetching...
+              </>
+            ) : (
+              <>
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                Refresh from arXiv
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Search & Filters */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
+          <form onSubmit={handleSearch} className="space-y-4">
+            {/* Search Input */}
+            <div>
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search papers..."
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+            </div>
+
+            {/* Filters Row */}
+            <div className="flex flex-wrap gap-4 items-center">
+              {/* Search Mode */}
+              <div className="flex gap-2">
+                {(['title', 'author', 'fulltext'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                      mode === m
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Time Filter */}
+              <select
+                value={since}
+                onChange={(e) => setSince(e.target.value)}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All time</option>
+                <option value="48h">Last 48 hours</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+              </select>
+
+              {/* Vector Search Toggle */}
+              <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={vectorSearch}
+                  onChange={(e) => setVectorSearch(e.target.checked)}
+                  className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                />
+                <span className="flex items-center gap-1">
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 10V3L4 14h7v7l9-11h-7z"
+                    />
+                  </svg>
+                  Vector Search
+                </span>
+              </label>
+
+              {/* Search Button */}
+              <button
+                type="submit"
+                className="ml-auto px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              >
+                Search
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Results */}
+        <div className="space-y-4">
+          {loading ? (
+            <div className="text-center py-12 text-gray-600 dark:text-gray-400">
+              Loading papers...
+            </div>
+          ) : papers.length === 0 ? (
+            <div className="text-center py-12 text-gray-600 dark:text-gray-400">
+              No papers found. Run the seed script to add mock data.
+            </div>
+          ) : (
+            <>
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Found {papers.length} papers
+              </div>
+              {papers.map((paper) => (
+                <div
+                  key={paper.id}
+                  className="bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow p-6"
+                >
+                  {/* Vector Score Badge */}
+                  {isVectorResult(paper) && (
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="px-3 py-1 text-xs font-semibold bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded-full">
+                        Similarity: {(paper.score * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Title */}
+                  <h2
+                    className="text-xl font-semibold text-gray-900 dark:text-white mb-2 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    onClick={() => router.push(`/papers/${paper.id}`)}
+                  >
+                    {paper.title}
+                  </h2>
+
+                  {/* Authors */}
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                    {paper.authors.join(', ')}
+                  </p>
+
+                  {/* Abstract (3 lines) or Why matched */}
+                  <p className="text-gray-700 dark:text-gray-300 mb-4 line-clamp-3">
+                    {paper.abstract}
+                  </p>
+
+                  {/* Why matched (for vector search) */}
+                  {isVectorResult(paper) && paper.why && (
+                    <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border-l-4 border-purple-500 rounded">
+                      <p className="text-sm text-purple-900 dark:text-purple-200">
+                        <span className="font-semibold">Why matched: </span>
+                        {paper.why}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Metadata */}
+                  <div className="flex flex-wrap items-center gap-4 mb-4">
+                    {/* Date */}
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                      {formatDate(paper.publishedAt)}
+                    </span>
+
+                    {/* Categories */}
+                    <div className="flex flex-wrap gap-2">
+                      {paper.categories.map((cat) => (
+                        <span
+                          key={cat}
+                          className="px-2 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded"
+                        >
+                          {cat}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Interaction Buttons */}
+                    <div className="ml-auto flex gap-2">
+                      <button
+                        onClick={() => handleLike(paper.id)}
+                        className={`p-2 rounded-lg transition-colors ${
+                          interactions[paper.id]?.liked
+                            ? 'text-red-500 bg-red-50 dark:bg-red-900/20'
+                            : 'text-gray-600 dark:text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
+                        }`}
+                        title="喜欢"
+                      >
+                        <svg className="h-5 w-5" fill={interactions[paper.id]?.liked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleSaveClick(paper.id)}
+                        className="p-2 text-gray-600 dark:text-gray-400 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded-lg transition-colors"
+                        title="收藏"
+                      >
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-3 mb-4">
+                    <a
+                      href={paper.pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
+                    >
+                      PDF
+                    </a>
+                    <a
+                      href={paper.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      arXiv
+                    </a>
+                  </div>
+
+                  {/* Paper Score */}
+                  {scores[paper.id] && (
+                    <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <div
+                        className="cursor-pointer"
+                        onClick={() => toggleScoreExpand(paper.id)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Overall Score
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                              {scores[paper.id].overall}/100
+                            </span>
+                            <svg
+                              className={`h-4 w-4 text-gray-500 transition-transform ${
+                                expandedScores.has(paper.id) ? 'rotate-180' : ''
+                              }`}
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 9l-7 7-7-7"
+                              />
+                            </svg>
+                          </div>
+                        </div>
+                        {/* Progress Bar */}
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all"
+                            style={{ width: `${scores[paper.id].overall}%` }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      {/* Expanded Rubric Details */}
+                      {expandedScores.has(paper.id) && (
+                        <div className="mt-4 space-y-3">
+                          {/* Novelty */}
+                          <div>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="text-gray-700 dark:text-gray-300">新颖性</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                {scores[paper.id].rubric.novelty}/25
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                              <div
+                                className="bg-green-500 h-1.5 rounded-full"
+                                style={{ width: `${(scores[paper.id].rubric.novelty / 25) * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+
+                          {/* Technical */}
+                          <div>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="text-gray-700 dark:text-gray-300">技术深度</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                {scores[paper.id].rubric.technical}/25
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                              <div
+                                className="bg-blue-500 h-1.5 rounded-full"
+                                style={{ width: `${(scores[paper.id].rubric.technical / 25) * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+
+                          {/* Empirical */}
+                          <div>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="text-gray-700 dark:text-gray-300">实证研究</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                {scores[paper.id].rubric.empirical}/25
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                              <div
+                                className="bg-purple-500 h-1.5 rounded-full"
+                                style={{ width: `${(scores[paper.id].rubric.empirical / 25) * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+
+                          {/* Clarity */}
+                          <div>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="text-gray-700 dark:text-gray-300">清晰度</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                {scores[paper.id].rubric.clarity}/15
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                              <div
+                                className="bg-yellow-500 h-1.5 rounded-full"
+                                style={{ width: `${(scores[paper.id].rubric.clarity / 15) * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+
+                          {/* Reproducibility */}
+                          <div>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="text-gray-700 dark:text-gray-300">可复现性</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                {scores[paper.id].rubric.reproducibility}/10
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                              <div
+                                className="bg-red-500 h-1.5 rounded-full"
+                                style={{ width: `${(scores[paper.id].rubric.reproducibility / 10) * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Collection Dialog */}
+      {showCollectionDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowCollectionDialog(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full m-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+              添加到收藏夹
+            </h3>
+
+            {/* Existing Collections */}
+            {collections.length > 0 && (
+              <div className="mb-4 max-h-60 overflow-y-auto">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">选择收藏夹：</p>
+                <div className="space-y-2">
+                  {collections.map((collection) => (
+                    <button
+                      key={collection.id}
+                      onClick={() => handleAddToCollection(collection.id)}
+                      className="w-full text-left px-4 py-3 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                    >
+                      <div className="font-medium text-gray-900 dark:text-white">{collection.name}</div>
+                      {collection.description && (
+                        <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">{collection.description}</div>
+                      )}
+                      <div className="text-xs text-gray-500 mt-1">{collection.paperIds.length} 篇论文</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Create New Collection */}
+            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">或创建新收藏夹：</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCollectionName}
+                  onChange={(e) => setNewCollectionName(e.target.value)}
+                  placeholder="收藏夹名称"
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  onKeyPress={(e) => e.key === 'Enter' && handleCreateCollection()}
+                />
+                <button
+                  onClick={handleCreateCollection}
+                  disabled={!newCollectionName.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  创建
+                </button>
+              </div>
+            </div>
+
+            {/* Close Button */}
+            <button
+              onClick={() => setShowCollectionDialog(false)}
+              className="mt-4 w-full px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+    </main>
+  )
+}

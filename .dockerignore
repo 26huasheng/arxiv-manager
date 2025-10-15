@@ -1,0 +1,55 @@
+# ============================================================================
+# Hosting Pack v3.1 - Docker Ignore File
+# ============================================================================
+
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Build output
+.next
+out
+dist
+build
+
+# Environment files
+.env
+.env.local
+.env*.local
+
+# Testing
+coverage
+.nyc_output
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation (optional, include if needed)
+README.md
+docs
+
+# Data (will be mounted as volume)
+data
+
+# Temporary files
+*.log
+*.tmp
+.cache
