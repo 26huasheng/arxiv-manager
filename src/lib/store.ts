@@ -1,34 +1,39 @@
 import fs from 'fs/promises'
 import path from 'path'
-import { Paper, PaperInteraction, Embedding, PaperSummary, PaperScore, Collection } from '@/src/types/paper'
+import {
+  Paper,
+  PaperInteraction,
+  Embedding,
+  PaperSummary,
+  PaperScore,
+  Collection,
+} from '@/src/types/paper'
 
-// 原有常量保留（本地/CI 仍写这里）
+// 原本的本地数据目录（本地/CI 持久化仍写这里）
 const DATA_DIR = path.join(process.cwd(), 'data')
-// 新增：Vercel 唯一可写目录
+// Vercel 唯一可写的临时目录（线上刷新写这里，函数重启会丢）
 const TMP_DIR = '/tmp/arxiv-manager'
 
-// 线上判定：Vercel 默认会注入 VERCEL=1；也支持你手动设置 READ_ONLY_FS=1
+// 在 Vercel 或你手动设置 READ_ONLY_FS=1 的环境，视为只读仓库
 function isReadOnlyFS() {
   return process.env.VERCEL === '1' || process.env.READ_ONLY_FS === '1'
 }
 
-// 读取优先级：先 /tmp（刷新后的最新），再仓库 data/，最后抛错
+/** 读取顺序：先 /tmp（刷新后的最新），再仓库 data/ */
 async function readJsonPreferTmp<T>(filename: string): Promise<T> {
-  // 1) /tmp 优先（线上刷新写在这里）
+  // 1) /tmp 优先
   try {
     const pTmp = path.join(TMP_DIR, filename)
     const content = await fs.readFile(pTmp, 'utf-8')
     return JSON.parse(content)
-  } catch {
-    // ignore
-  }
-  // 2) 回退仓库 data/
+  } catch {}
+  // 2) 回退 data/
   const pRepo = path.join(DATA_DIR, filename)
   const content = await fs.readFile(pRepo, 'utf-8')
   return JSON.parse(content)
 }
 
-// 写入位置：线上写 /tmp，本地/CI 写 data
+/** 写入：线上写 /tmp，本地/CI 写 data/（不改对外调用） */
 async function writeJsonSmart<T>(filename: string, data: T): Promise<void> {
   if (isReadOnlyFS()) {
     await fs.mkdir(TMP_DIR, { recursive: true })
@@ -60,7 +65,7 @@ export class JsonStore {
     }
   }
 
-  // Papers
+  // ── Papers ─────────────────────────────────────────────────────────────
   static async getPapers(): Promise<Paper[]> {
     return this.readJson<Paper[]>('papers.json')
   }
@@ -77,14 +82,14 @@ export class JsonStore {
 
   static async updatePaper(id: string, updates: Partial<Paper>): Promise<void> {
     const papers = await this.getPapers()
-    const index = papers.findIndex(p => p.id === id)
+    const index = papers.findIndex((p) => p.id === id)
     if (index !== -1) {
       papers[index] = { ...papers[index], ...updates }
       return this.savePapers(papers)
     }
   }
 
-  // Interactions
+  // ── Interactions ───────────────────────────────────────────────────────
   static async getInteractions(): Promise<Record<string, PaperInteraction>> {
     return this.readJson<Record<string, PaperInteraction>>('interactions.json')
   }
@@ -93,9 +98,130 @@ export class JsonStore {
     return this.writeJson('interactions.json', interactions)
   }
 
-  static async updateInteraction(paperId: string, interaction: Partial<PaperInteraction>): Promise<void> {
+  static async updateInteraction(
+    paperId: string,
+    interaction: Partial<PaperInteraction>
+  ): Promise<void> {
     const interactions = await this.getInteractions()
     interactions[paperId] = {
-      ...interactions[paperId],
+      ...(interactions[paperId] || {}),
       paperId,
-      ...
+      ...interaction,
+    }
+    return this.saveInteractions(interactions)
+  }
+
+  // ── Embeddings ─────────────────────────────────────────────────────────
+  static async getEmbeddings(): Promise<Record<string, Embedding>> {
+    return this.readJson<Record<string, Embedding>>('embeddings.json')
+  }
+
+  static async saveEmbeddings(embeddings: Record<string, Embedding>): Promise<void> {
+    return this.writeJson('embeddings.json', embeddings)
+  }
+
+  static async updateEmbedding(paperId: string, embedding: Partial<Embedding>): Promise<void> {
+    const embeddings = await this.getEmbeddings()
+    embeddings[paperId] = {
+      ...(embeddings[paperId] || {}),
+      paperId,
+      ...embedding,
+    }
+    return this.saveEmbeddings(embeddings)
+  }
+
+  // ── Summaries ──────────────────────────────────────────────────────────
+  static async getSummaries(): Promise<Record<string, PaperSummary>> {
+    return this.readJson<Record<string, PaperSummary>>('summaries.json')
+  }
+
+  static async saveSummaries(summaries: Record<string, PaperSummary>): Promise<void> {
+    return this.writeJson('summaries.json', summaries)
+  }
+
+  static async updateSummary(paperId: string, summary: PaperSummary): Promise<void> {
+    const summaries = await this.getSummaries()
+    summaries[paperId] = summary
+    return this.saveSummaries(summaries)
+  }
+
+  static async getSummary(paperId: string): Promise<PaperSummary | null> {
+    const summaries = await this.getSummaries()
+    return summaries[paperId] || null
+  }
+
+  // ── Scores ─────────────────────────────────────────────────────────────
+  static async getScores(): Promise<Record<string, PaperScore>> {
+    return this.readJson<Record<string, PaperScore>>('scores.json')
+  }
+
+  static async saveScores(scores: Record<string, PaperScore>): Promise<void> {
+    return this.writeJson('scores.json', scores)
+  }
+
+  static async updateScore(paperId: string, score: PaperScore): Promise<void> {
+    const scores = await this.getScores()
+    scores[paperId] = score
+    return this.saveScores(scores)
+  }
+
+  static async getScore(paperId: string): Promise<PaperScore | null> {
+    const scores = await this.getScores()
+    return scores[paperId] || null
+  }
+
+  // ── Collections ────────────────────────────────────────────────────────
+  static async getCollections(): Promise<Collection[]> {
+    return this.readJson<Collection[]>('collections.json')
+  }
+
+  static async saveCollections(collections: Collection[]): Promise<void> {
+    return this.writeJson('collections.json', collections)
+  }
+
+  static async addCollection(collection: Collection): Promise<void> {
+    const collections = await this.getCollections()
+    collections.push(collection)
+    return this.saveCollections(collections)
+  }
+
+  static async updateCollection(id: string, updates: Partial<Collection>): Promise<void> {
+    const collections = await this.getCollections()
+    const index = collections.findIndex((c) => c.id === id)
+    if (index !== -1) {
+      collections[index] = {
+        ...collections[index],
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      }
+      return this.saveCollections(collections)
+    }
+  }
+
+  static async deleteCollection(id: string): Promise<void> {
+    const collections = await this.getCollections()
+    const filtered = collections.filter((c) => c.id !== id)
+    return this.saveCollections(filtered)
+  }
+
+  static async getCollection(id: string): Promise<Collection | null> {
+    const collections = await this.getCollections()
+    return collections.find((c) => c.id === id) || null
+  }
+
+  static async addPaperToCollection(collectionId: string, paperId: string): Promise<void> {
+    const collection = await this.getCollection(collectionId)
+    if (collection && !collection.paperIds.includes(paperId)) {
+      collection.paperIds.push(paperId)
+      await this.updateCollection(collectionId, { paperIds: collection.paperIds })
+    }
+  }
+
+  static async removePaperFromCollection(collectionId: string, paperId: string): Promise<void> {
+    const collection = await this.getCollection(collectionId)
+    if (collection) {
+      collection.paperIds = collection.paperIds.filter((id) => id !== paperId)
+      await this.updateCollection(collectionId, { paperIds: collection.paperIds })
+    }
+  }
+}
